@@ -9,27 +9,28 @@ class Sudoku
 {
 public:
 	// 1. Forward type declarations
-	using Grid = std::array<std::array<int, 9>, 9>;
+	// Flat grid: 81 cells × uint16_t (0-9) = 162 bytes (vs 324 for nested array)
+	using Grid = std::array<uint16_t, 81>;
 	static constexpr int N = 9;
 	using Mask = uint16_t;  // bits 1-9 = candidates
 
-	// Bit-packed grid: 81 cells × 4 bits = 324 bits = 6 × uint64_t (384 bits)
+	// Fully bit-packed grid: 81 cells × 4 bits = 324 bits = 6 × uint64_t (48 bytes)
 	using PackedGrid = std::array<uint64_t, 6>;
 
 	// 2. Static data members
-	static constexpr Grid EXAMPLE_PUZZLE = {{
-		{5, 3, 0, 0, 7, 0, 0, 0, 0},
-		{6, 0, 0, 1, 9, 5, 0, 0, 0},
-		{0, 9, 8, 0, 0, 0, 0, 6, 0},
+	static constexpr Grid EXAMPLE_PUZZLE = {
+		5, 3, 0, 0, 7, 0, 0, 0, 0,
+		6, 0, 0, 1, 9, 5, 0, 0, 0,
+		0, 9, 8, 0, 0, 0, 0, 6, 0,
 
-		{8, 0, 0, 0, 6, 0, 0, 0, 3},
-		{4, 0, 0, 8, 0, 3, 0, 0, 1},
-		{7, 0, 0, 0, 2, 0, 0, 0, 6},
+		8, 0, 0, 0, 6, 0, 0, 0, 3,
+		4, 0, 0, 8, 0, 3, 0, 0, 1,
+		7, 0, 0, 0, 2, 0, 0, 0, 6,
 
-		{0, 6, 0, 0, 0, 0, 2, 8, 0},
-		{0, 0, 0, 4, 1, 9, 0, 0, 5},
-		{0, 0, 0, 0, 8, 0, 0, 7, 9}
-	}};
+		0, 6, 0, 0, 0, 0, 2, 8, 0,
+		0, 0, 0, 4, 1, 9, 0, 0, 5,
+		0, 0, 0, 0, 8, 0, 0, 7, 9
+	};
 
 private:
 	// Member variables (early visibility of state)
@@ -71,7 +72,7 @@ private:
 	};
 
 	// Bit-packed candidates for each cell (4 bits per cell = 81 × 4 = 324 bits)
-	// Stored as 6 × uint64_t = 384 bits
+	// Stored as flat array for cache efficiency
 	Mask _cell_candidates[81];
 
 public:
@@ -90,6 +91,11 @@ public:
 
 	void Draw(bool draw_start = true) const;
 
+	// Cell access helpers
+	static constexpr int idx(int r, int c) { return r * 9 + c; }
+	int get(int r, int c) const { return _grid[idx(r, c)]; }
+	int getSolution(int r, int c) const { return _solution[idx(r, c)]; }
+
 	// Static utility: pack/unpack grid
 	static PackedGrid packGrid(const Grid& grid);
 	static Grid unpackGrid(const PackedGrid& packed);
@@ -106,8 +112,6 @@ private:
 	bool _propagate();
 	bool _nakedSingles();
 	bool _hiddenSingles();
-	bool _nakedPairs();
-	bool _lockedCandidates();
 
 	// Recursive solver with propagation
 	bool _solveRecursive();

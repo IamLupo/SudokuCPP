@@ -7,8 +7,8 @@ using Mask = Sudoku::Mask;
 Sudoku::Sudoku()
 	: _grid{}, _solution{}, _solved(false)
 {
-	_grid.fill({});
-	_solution.fill({});
+	_grid.fill(0);
+	_solution.fill(0);
 	std::fill(std::begin(_cell_candidates), std::end(_cell_candidates), 0);
 }
 
@@ -39,12 +39,12 @@ bool Sudoku::solve()
 	// Initialize masks from givens
 	for (int r = 0; r < N; ++r) {
 		for (int c = 0; c < N; ++c) {
-			int num = _solution[r][c];
+			int num = _solution[idx(r, c)];
 			if (num != 0) {
 				Mask m = DIGIT_MASK[num];
 				_rows[r] |= m;
 				_cols[c] |= m;
-				_boxes[BOX_OF[r * 9 + c]] |= m;
+				_boxes[BOX_OF[idx(r, c)]] |= m;
 			}
 		}
 	}
@@ -52,10 +52,11 @@ bool Sudoku::solve()
 	// Initialize cell candidates
 	for (int r = 0; r < N; ++r) {
 		for (int c = 0; c < N; ++c) {
-			if (_solution[r][c] == 0) {
-				_cell_candidates[r * 9 + c] = _getCandidates(r, c);
+			int i = idx(r, c);
+			if (_solution[i] == 0) {
+				_cell_candidates[i] = _getCandidates(r, c);
 			} else {
-				_cell_candidates[r * 9 + c] = 0;
+				_cell_candidates[i] = 0;
 			}
 		}
 	}
@@ -89,13 +90,14 @@ void Sudoku::Draw(bool draw_start) const
 				std::cout << "| ";
 			}
 
-			if (grid[r][c] == 0)
+			int val = grid[idx(r, c)];
+			if (val == 0)
 			{
 				std::cout << ". ";
 			}
 			else
 			{
-				std::cout << grid[r][c] << " ";
+				std::cout << val << " ";
 			}
 		}
 
@@ -107,22 +109,23 @@ void Sudoku::Draw(bool draw_start) const
 bool Sudoku::_isValid(int row, int col, int num) const
 {
 	Mask m = DIGIT_MASK[num];
-	int b = BOX_OF[row * 9 + col];
+	int b = BOX_OF[idx(row, col)];
 	return !(_rows[row] & m) && !(_cols[col] & m) && !(_boxes[b] & m);
 }
 
 Mask Sudoku::_getCandidates(int row, int col) const
 {
-	int b = BOX_OF[row * 9 + col];
+	int b = BOX_OF[idx(row, col)];
 	return ~(_rows[row] | _cols[col] | _boxes[b]) & 0x3FE; // bits 1-9
 }
 
 void Sudoku::_updateCandidates(int row, int col)
 {
-	if (_solution[row][col] == 0) {
-		_cell_candidates[row * 9 + col] = _getCandidates(row, col);
+	int i = idx(row, col);
+	if (_solution[i] == 0) {
+		_cell_candidates[i] = _getCandidates(row, col);
 	} else {
-		_cell_candidates[row * 9 + col] = 0;
+		_cell_candidates[i] = 0;
 	}
 }
 
@@ -136,16 +139,14 @@ int Sudoku::_findBestCell() const
 	int bestCell = -1;
 	int minCandidates = 10;
 
-	for (int r = 0; r < N; ++r) {
-		for (int c = 0; c < N; ++c) {
-			if (_solution[r][c] == 0) {
-				Mask candidates = _cell_candidates[r * 9 + c];
-				int count = _countBits(candidates);
-				if (count < minCandidates) {
-					minCandidates = count;
-					bestCell = r * 9 + c;
-					if (count <= 1) return bestCell;
-				}
+	for (int i = 0; i < 81; ++i) {
+		if (_solution[i] == 0) {
+			Mask candidates = _cell_candidates[i];
+			int count = _countBits(candidates);
+			if (count < minCandidates) {
+				minCandidates = count;
+				bestCell = i;
+				if (count <= 1) return bestCell;
 			}
 		}
 	}
@@ -168,20 +169,19 @@ bool Sudoku::_propagate()
 bool Sudoku::_nakedSingles()
 {
 	bool progress = false;
-	for (int r = 0; r < N; ++r) {
-		for (int c = 0; c < N; ++c) {
-			if (_solution[r][c] == 0) {
-				Mask candidates = _cell_candidates[r * 9 + c];
-				if (candidates && (candidates & (candidates - 1)) == 0) {
-					int num = __builtin_ctz(candidates);
-					_solution[r][c] = num;
-					Mask m = DIGIT_MASK[num];
-					_rows[r] |= m;
-					_cols[c] |= m;
-					_boxes[BOX_OF[r * 9 + c]] |= m;
-					_cell_candidates[r * 9 + c] = 0;
-					progress = true;
-				}
+	for (int i = 0; i < 81; ++i) {
+		if (_solution[i] == 0) {
+			Mask candidates = _cell_candidates[i];
+			if (candidates && (candidates & (candidates - 1)) == 0) {
+				int num = __builtin_ctz(candidates);
+				int r = i / 9, c = i % 9;
+				_solution[i] = num;
+				Mask m = DIGIT_MASK[num];
+				_rows[r] |= m;
+				_cols[c] |= m;
+				_boxes[BOX_OF[i]] |= m;
+				_cell_candidates[i] = 0;
+				progress = true;
 			}
 		}
 	}
@@ -207,17 +207,19 @@ bool Sudoku::_hiddenSingles()
 			if (_rows[r] & m) continue;
 			int count = 0, last_c = -1;
 			for (int c = 0; c < N; ++c) {
-				if (_solution[r][c] == 0 && (_cell_candidates[r * 9 + c] & m)) {
+				int i = idx(r, c);
+				if (_solution[i] == 0 && (_cell_candidates[i] & m)) {
 					count++;
 					last_c = c;
 				}
 			}
 			if (count == 1) {
-				_solution[r][last_c] = d;
+				int i = idx(r, last_c);
+				_solution[i] = d;
 				_rows[r] |= m;
 				_cols[last_c] |= m;
-				_boxes[BOX_OF[r * 9 + last_c]] |= m;
-				_cell_candidates[r * 9 + last_c] = 0;
+				_boxes[BOX_OF[i]] |= m;
+				_cell_candidates[i] = 0;
 				progress = true;
 			}
 		}
@@ -230,17 +232,19 @@ bool Sudoku::_hiddenSingles()
 			if (_cols[c] & m) continue;
 			int count = 0, last_r = -1;
 			for (int r = 0; r < N; ++r) {
-				if (_solution[r][c] == 0 && (_cell_candidates[r * 9 + c] & m)) {
+				int i = idx(r, c);
+				if (_solution[i] == 0 && (_cell_candidates[i] & m)) {
 					count++;
 					last_r = r;
 				}
 			}
 			if (count == 1) {
-				_solution[last_r][c] = d;
+				int i = idx(last_r, c);
+				_solution[i] = d;
 				_rows[last_r] |= m;
 				_cols[c] |= m;
-				_boxes[BOX_OF[last_r * 9 + c]] |= m;
-				_cell_candidates[last_r * 9 + c] = 0;
+				_boxes[BOX_OF[i]] |= m;
+				_cell_candidates[i] = 0;
 				progress = true;
 			}
 		}
@@ -253,15 +257,14 @@ bool Sudoku::_hiddenSingles()
 			if (_boxes[b] & m) continue;
 			int count = 0, last_cell = -1;
 			for (int i = 0; i < 81; ++i) {
-				int r = i / 9, c = i % 9;
-				if (BOX_OF[i] == b && _solution[r][c] == 0 && (_cell_candidates[i] & m)) {
+				if (BOX_OF[i] == b && _solution[i] == 0 && (_cell_candidates[i] & m)) {
 					count++;
 					last_cell = i;
 				}
 			}
 			if (count == 1) {
 				int r = last_cell / 9, c = last_cell % 9;
-				_solution[r][c] = d;
+				_solution[last_cell] = d;
 				_rows[r] |= m;
 				_cols[c] |= m;
 				_boxes[b] |= m;
@@ -298,7 +301,7 @@ bool Sudoku::_solveRecursive()
 		candidates &= candidates - 1;
 
 		// Place digit
-		_solution[row][col] = num;
+		_solution[cell] = num;
 		_rows[row] |= m;
 		_cols[col] |= m;
 		_boxes[b] |= m;
@@ -309,8 +312,9 @@ bool Sudoku::_solveRecursive()
 
 		for (int r = 0; r < N; ++r) {
 			for (int c = 0; c < N; ++c) {
-				if (_solution[r][c] == 0 && (_cell_candidates[r * 9 + c] & m)) {
-					_cell_candidates[r * 9 + c] &= ~m;
+				int i = idx(r, c);
+				if (_solution[i] == 0 && (_cell_candidates[i] & m)) {
+					_cell_candidates[i] &= ~m;
 				}
 			}
 		}
@@ -319,7 +323,7 @@ bool Sudoku::_solveRecursive()
 			return true;
 
 		// Backtrack
-		_solution[row][col] = 0;
+		_solution[cell] = 0;
 		_rows[row] &= ~m;
 		_cols[col] &= ~m;
 		_boxes[b] &= ~m;
@@ -335,14 +339,11 @@ bool Sudoku::_solveRecursive()
 Sudoku::PackedGrid Sudoku::packGrid(const Grid& grid)
 {
 	PackedGrid packed = {};
-	for (int r = 0; r < N; ++r) {
-		for (int c = 0; c < N; ++c) {
-			int idx = r * 9 + c;
-			int bit_pos = idx * 4;
-			int word = bit_pos / 64;
-			int shift = bit_pos % 64;
-			packed[word] |= (static_cast<uint64_t>(grid[r][c]) << shift);
-		}
+	for (int i = 0; i < 81; ++i) {
+		int bit_pos = i * 4;
+		int word = bit_pos / 64;
+		int shift = bit_pos % 64;
+		packed[word] |= (static_cast<uint64_t>(grid[i]) << shift);
 	}
 	return packed;
 }
@@ -350,14 +351,11 @@ Sudoku::PackedGrid Sudoku::packGrid(const Grid& grid)
 Sudoku::Grid Sudoku::unpackGrid(const PackedGrid& packed)
 {
 	Grid grid = {};
-	for (int r = 0; r < N; ++r) {
-		for (int c = 0; c < N; ++c) {
-			int idx = r * 9 + c;
-			int bit_pos = idx * 4;
-			int word = bit_pos / 64;
-			int shift = bit_pos % 64;
-			grid[r][c] = static_cast<int>((packed[word] >> shift) & 0xF);
-		}
+	for (int i = 0; i < 81; ++i) {
+		int bit_pos = i * 4;
+		int word = bit_pos / 64;
+		int shift = bit_pos % 64;
+		grid[i] = static_cast<uint16_t>((packed[word] >> shift) & 0xF);
 	}
 	return grid;
 }
