@@ -25,6 +25,19 @@ void benchmark(const char* name, const Grid& puzzle, Grid& solution)
 	}
 }
 
+// Known hard puzzle (AI Escargot / "Easter Monster" variant)
+static const Grid HARD_PUZZLE = {{
+	0,0,0, 0,0,0, 0,0,0,
+	0,0,0, 0,0,3, 0,8,5,
+	0,0,1, 0,2,0, 0,0,0,
+	0,0,0, 5,0,7, 0,0,0,
+	0,0,4, 0,0,0, 1,0,0,
+	0,9,0, 0,0,0, 0,0,0,
+	5,0,0, 0,0,0, 0,7,3,
+	0,0,2, 0,1,0, 0,0,0,
+	0,0,0, 0,4,0, 0,0,9
+}};
+
 int main()
 {
 	std::cout << "Starting...\n";
@@ -91,6 +104,81 @@ int main()
 		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 		std::cout << "DLX (Algorithm X): "
 			<< duration.count() / 100.0 << " µs avg\n";
+	}
+
+	// Test with hard puzzle (requires more backtracking)
+	std::cout << "\n=== Hard Puzzle Test (AI Escargot) ===\n";
+	Grid hard_solution;
+
+	SudokuDLX::Draw(HARD_PUZZLE, true);
+	std::cout << "\n";
+
+	{
+		Sudoku s(HARD_PUZZLE);
+		auto start = Clock::now();
+		bool solved = s.solve();
+		auto end = Clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+		std::cout << "Bitmask + MRV + Propagation: ";
+		if (solved) {
+			std::cout << "SOLVED in " << duration.count() << " µs\n";
+			s.Draw(false);
+		} else {
+			std::cout << "FAILED\n";
+		}
+	}
+
+	std::cout << "\n---\n";
+
+	{
+		auto start = Clock::now();
+		bool solved = SudokuDLX::solve(HARD_PUZZLE, hard_solution);
+		auto end = Clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+		std::cout << "DLX (Algorithm X): ";
+		if (solved) {
+			std::cout << "SOLVED in " << duration.count() << " µs\n";
+			SudokuDLX::Draw(hard_solution, false);
+		} else {
+			std::cout << "FAILED\n";
+		}
+	}
+
+	// Benchmark hard puzzle multiple runs
+	std::cout << "\n=== Hard Puzzle Benchmark (50 iterations) ===\n";
+
+	// Warmup
+	for (int i = 0; i < 3; ++i) {
+		Sudoku s(HARD_PUZZLE);
+		s.solve();
+		SudokuDLX::solve(HARD_PUZZLE, hard_solution);
+	}
+
+	// Benchmark bitmask solver on hard puzzle
+	{
+		auto start = Clock::now();
+		for (int i = 0; i < 50; ++i)
+		{
+			Sudoku s(HARD_PUZZLE);
+			s.solve();
+		}
+		auto end = Clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+		std::cout << "Bitmask + MRV + Propagation: "
+			<< duration.count() / 50.0 << " µs avg\n";
+	}
+
+	// Benchmark DLX on hard puzzle
+	{
+		auto start = Clock::now();
+		for (int i = 0; i < 50; ++i)
+		{
+			SudokuDLX::solve(HARD_PUZZLE, hard_solution);
+		}
+		auto end = Clock::now();
+		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
+		std::cout << "DLX (Algorithm X): "
+			<< duration.count() / 50.0 << " µs avg\n";
 	}
 
 	// Test bit-packed grid

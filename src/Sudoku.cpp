@@ -8,6 +8,14 @@
 #pragma intrinsic(_tzcnt_u32)
 #endif
 
+// AVX2 support detection (disabled in Debug builds due to stack alignment issues)
+#if (defined(__AVX2__) || (defined(_MSC_VER) && defined(__AVX2__))) && !defined(_DEBUG)
+#define SUDOKU_AVX2 1
+#include <immintrin.h>
+#else
+#define SUDOKU_AVX2 0
+#endif
+
 using Mask = Sudoku::Mask;
 
 // Portable popcount
@@ -16,7 +24,7 @@ inline int popcount(Mask m)
 #if defined(_MSC_VER)
     return __popcnt(static_cast<unsigned int>(m));
 #else
-    return popcount(static_cast<unsigned int>(m));
+    return __builtin_popcount(static_cast<unsigned int>(m));
 #endif
 }
 
@@ -28,9 +36,140 @@ inline int ctz(Mask m)
     _BitScanForward(&index, static_cast<unsigned long>(m));
     return static_cast<int>(index);
 #else
-    return ctz(static_cast<unsigned int>(m));
+    return __builtin_ctz(static_cast<unsigned int>(m));
 #endif
 }
+
+#if SUDOKU_AVX2
+// AVX2-optimized namespace for vectorized operations
+namespace SudokuAVX2
+{
+    // 16 x 16-bit lanes in a 256-bit register
+    static constexpr int LANES = 16;
+    static constexpr Mask ALL_DIGITS = 0x3FE; // bits 1-9 set
+
+    // Broadcast a 16-bit mask to all 16 lanes
+    inline __m256i broadcast_mask(Mask m)
+    {
+        return _mm256_set1_epi16(static_cast<short>(m));
+    }
+
+    // Load 16 cell candidates (unaligned, 16 * 2 = 32 bytes)
+    inline __m256i load_candidates(const Mask* ptr)
+    {
+        return _mm256_loadu_si256(reinterpret_cast<const __m256i*>(ptr));
+    }
+
+    // Store 16 cell candidates
+    inline void store_candidates(Mask* ptr, __m256i val)
+    {
+        _mm256_storeu_si256(reinterpret_cast<__m256i*>(ptr), val);
+    }
+
+    // Vectorized popcount for 16 x 16-bit values using nibble lookup table
+    // Returns popcount for each 16-bit lane in lower 8 bits of each 16-bit lane
+    inline __m256i popcount_epi16(__m256i x)
+    {
+        // Split each 16-bit lane into 4 nibbles (4 bits each)
+        // Use 16-entry lookup table (popcount for 0-15) duplicated across 256-bit lanes
+        const __m256i popcnt_lut = _mm256_setr_epi8(
+            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,  // lane 0: popcount for 0-15
+            0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4   // lane 1: same (shuffle operates per 128-bit lane)
+        );
+
+        // Extract low nibbles of each byte
+        __m256i nibble_mask = _mm256_set1_epi8(0x0F);
+        __m256i lo_nibble = _mm256_and_si256(x, nibble_mask);
+        __m256i hi_nibble = _mm256_and_si256(_mm256_srli_epi16(x, 4), nibble_mask);
+        __m256i lo2_nibble = _mm256_and_si256(_mm256_srli_epi16(x, 8), nibble_mask);
+        __m256i hi2_nibble = _mm256_and_si256(_mm256_srli_epi16(x, 12), nibble_mask);
+
+        // Lookup popcount for each nibble
+        __m256i cnt0 = _mm256_shuffle_epi8(popcnt_lut, lo_nibble);
+        __m256i cnt1 = _mm256_shuffle_epi8(popcnt_lut, hi_nibble);
+        __m256i cnt2 = _mm256_shuffle_epi8(popcnt_lut, lo2_nibble);
+        __m256i cnt3 = _mm256_shuffle_epi8(popcnt_lut, hi2_nibble);
+
+        // Sum all 4 nibbles per 16-bit lane
+        __m256i sum = _mm256_add_epi8(cnt0, cnt1);
+        sum = _mm256_add_epi8(sum, cnt2);
+        sum = _mm256_add_epi8(sum, cnt3);
+
+        return sum;
+    }
+
+    // Check which lanes have exactly 1 candidate (naked singles)
+    // Returns mask where each 16-bit lane is 0xFFFF if exactly 1 bit set, 0 otherwise
+    inline __m256i naked_singles_mask(__m256i candidates)
+    {
+        // (candidates & (candidates - 1)) == 0 && candidates != 0
+        __m256i dec = _mm256_sub_epi16(candidates, _mm256_set1_epi16(1));
+        __m256i and_result = _mm256_and_si256(candidates, dec);
+        __m256i is_zero = _mm256_cmpeq_epi16(and_result, _mm256_setzero_si256());
+        __m256i non_zero = _mm256_cmpgt_epi16(candidates, _mm256_setzero_si256());
+        return _mm256_and_si256(is_zero, non_zero);
+    }
+
+    // Clear a specific digit mask from all candidates (vectorized)
+    // candidates &= ~mask
+    inline __m256i clear_digit(__m256i candidates, Mask digit_mask)
+    {
+        __m256i mask = broadcast_mask(~digit_mask);
+        return _mm256_and_si256(candidates, mask);
+    }
+
+    // Compute candidates for 16 cells with same row/col/box (rare case)
+    // More commonly: compute for cells in same row (different cols, same row mask)
+    inline __m256i compute_candidates_row(__m256i row_mask, __m256i col_masks, __m256i box_masks)
+    {
+        __m256i combined = _mm256_or_si256(_mm256_or_si256(row_mask, col_masks), box_masks);
+        __m256i all_digits = broadcast_mask(ALL_DIGITS);
+        return _mm256_andnot_si256(combined, all_digits);
+    }
+
+    // Find index of lane with minimum popcount (for MRV heuristic)
+    // Returns -1 if all lanes are filled (candidates == 0)
+    inline int find_min_candidates(const Mask* candidates, int count, int& min_count)
+    {
+        min_count = 10;
+        int best_idx = -1;
+
+        // Process 16 at a time
+        int i = 0;
+        for (; i + LANES <= count; i += LANES) {
+            __m256i vec = load_candidates(&candidates[i]);
+            __m256i popcnts = popcount_epi16(vec);
+
+            // Extract popcounts and find minimum among non-zero candidates
+            alignas(32) unsigned char counts[LANES];
+            _mm256_storeu_si256(reinterpret_cast<__m256i*>(counts), popcnts);
+
+            for (int j = 0; j < LANES; ++j) {
+                int c = counts[j];
+                if (c > 0 && c < min_count) {
+                    min_count = c;
+                    best_idx = i + j;
+                    if (c <= 1) return best_idx;
+                }
+            }
+        }
+
+        // Scalar tail
+        for (; i < count; ++i) {
+            if (candidates[i] != 0) {
+                int c = popcount(candidates[i]);
+                if (c < min_count) {
+                    min_count = c;
+                    best_idx = i;
+                    if (c <= 1) return best_idx;
+                }
+            }
+        }
+
+        return best_idx;
+    }
+}
+#endif // SUDOKU_AVX2
 
 Sudoku::Sudoku()
 	: _grid{}, _solution{}, _solved(false)
@@ -164,6 +303,58 @@ int Sudoku::_countBits(Mask m) const
 
 int Sudoku::_findBestCell() const
 {
+#if SUDOKU_AVX2
+	// Vectorized: find cell with minimum candidates among empty cells
+	// We need to consider only cells where _solution[i] == 0
+	// Create a mask of valid (empty) cells
+	int min_count = 10;
+	int best_idx = -1;
+
+	// Process 16 cells at a time
+	for (int base = 0; base < 81; base += 16) {
+		int remaining = 81 - base;
+		int process = (remaining >= 16) ? 16 : remaining;
+
+		// Load candidates for this chunk
+		alignas(32) Mask chunk_candidates[16];
+		alignas(32) uint16_t chunk_solution[16];
+
+		for (int j = 0; j < process; ++j) {
+			chunk_candidates[j] = _cell_candidates[base + j];
+			chunk_solution[j] = _solution[base + j];
+		}
+		// Zero-pad the rest
+		for (int j = process; j < 16; ++j) {
+			chunk_candidates[j] = 0;
+			chunk_solution[j] = 1; // non-zero = filled
+		}
+
+		__m256i vec_cand = SudokuAVX2::load_candidates(chunk_candidates);
+		__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(chunk_solution));
+
+		// Mask out filled cells (set candidates to 0 where solution != 0)
+		__m256i sol_zero = _mm256_cmpeq_epi16(vec_sol, _mm256_setzero_si256());
+		vec_cand = _mm256_and_si256(vec_cand, sol_zero);
+
+		// Compute popcounts
+		__m256i popcnts = SudokuAVX2::popcount_epi16(vec_cand);
+
+		// Extract and find minimum
+		alignas(32) unsigned char counts[16];
+		_mm256_storeu_si256(reinterpret_cast<__m256i*>(counts), popcnts);
+
+		for (int j = 0; j < process; ++j) {
+			int c = counts[j];
+			if (c > 0 && c < min_count) {
+				min_count = c;
+				best_idx = base + j;
+				if (c <= 1) return best_idx;
+			}
+		}
+	}
+
+	return best_idx;
+#else
 	int bestCell = -1;
 	int minCandidates = 10;
 
@@ -179,6 +370,7 @@ int Sudoku::_findBestCell() const
 		}
 	}
 	return bestCell;
+#endif
 }
 
 // Constraint propagation techniques
@@ -197,6 +389,56 @@ bool Sudoku::_propagate()
 bool Sudoku::_nakedSingles()
 {
 	bool progress = false;
+
+#if SUDOKU_AVX2
+	// Vectorized: find all naked singles in chunks of 16
+	for (int base = 0; base < 81; base += 16) {
+		int remaining = 81 - base;
+		int process = (remaining >= 16) ? 16 : remaining;
+
+		alignas(32) Mask chunk_candidates[16];
+		alignas(32) uint16_t chunk_solution[16];
+
+		for (int j = 0; j < process; ++j) {
+			chunk_candidates[j] = _cell_candidates[base + j];
+			chunk_solution[j] = _solution[base + j];
+		}
+		for (int j = process; j < 16; ++j) {
+			chunk_candidates[j] = 0;
+			chunk_solution[j] = 1;
+		}
+
+		__m256i vec_cand = SudokuAVX2::load_candidates(chunk_candidates);
+		__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(chunk_solution));
+
+		// Mask out filled cells
+		__m256i sol_zero = _mm256_cmpeq_epi16(vec_sol, _mm256_setzero_si256());
+		vec_cand = _mm256_and_si256(vec_cand, sol_zero);
+
+		// Find naked singles: exactly 1 bit set
+		__m256i singles_mask = SudokuAVX2::naked_singles_mask(vec_cand);
+
+		// Extract which lanes are naked singles
+		alignas(32) uint16_t mask_arr[16];
+		_mm256_storeu_si256(reinterpret_cast<__m256i*>(mask_arr), singles_mask);
+
+		for (int j = 0; j < process; ++j) {
+			if (mask_arr[j]) {
+				int i = base + j;
+				Mask candidates = _cell_candidates[i];
+				int num = ctz(candidates);
+				int r = i / 9, c = i % 9;
+				_solution[i] = num;
+				Mask m = DIGIT_MASK[num];
+				_rows[r] |= m;
+				_cols[c] |= m;
+				_boxes[BOX_OF[i]] |= m;
+				_cell_candidates[i] = 0;
+				progress = true;
+			}
+		}
+	}
+#else
 	for (int i = 0; i < 81; ++i) {
 		if (_solution[i] == 0) {
 			Mask candidates = _cell_candidates[i];
@@ -213,6 +455,8 @@ bool Sudoku::_nakedSingles()
 			}
 		}
 	}
+#endif
+
 	if (progress) {
 		for (int r = 0; r < N; ++r) {
 			for (int c = 0; c < N; ++c) {
@@ -338,6 +582,24 @@ bool Sudoku::_solveRecursive()
 		Mask saved[81];
 		for (int i = 0; i < 81; ++i) saved[i] = _cell_candidates[i];
 
+#if SUDOKU_AVX2
+		// Vectorized: clear digit m from all candidates in chunks of 16
+		__m256i clear_mask = SudokuAVX2::broadcast_mask(~m);
+		for (int base = 0; base < 81; base += 16) {
+			int remaining = 81 - base;
+			int process = (remaining >= 16) ? 16 : remaining;
+
+			__m256i vec_cand = SudokuAVX2::load_candidates(&_cell_candidates[base]);
+			__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&_solution[base]));
+
+			// Only clear for empty cells
+			__m256i sol_zero = _mm256_cmpeq_epi16(vec_sol, _mm256_setzero_si256());
+			__m256i cleared = _mm256_and_si256(vec_cand, clear_mask);
+			vec_cand = _mm256_blendv_epi8(vec_cand, cleared, sol_zero);
+
+			SudokuAVX2::store_candidates(&_cell_candidates[base], vec_cand);
+		}
+#else
 		for (int r = 0; r < N; ++r) {
 			for (int c = 0; c < N; ++c) {
 				int i = idx(r, c);
@@ -346,6 +608,7 @@ bool Sudoku::_solveRecursive()
 				}
 			}
 		}
+#endif
 
 		if (_solveRecursive())
 			return true;
