@@ -2,7 +2,35 @@
 #include <iostream>
 #include <algorithm>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#pragma intrinsic(__popcnt)
+#pragma intrinsic(_tzcnt_u32)
+#endif
+
 using Mask = Sudoku::Mask;
+
+// Portable popcount
+inline int popcount(Mask m)
+{
+#if defined(_MSC_VER)
+    return __popcnt(static_cast<unsigned int>(m));
+#else
+    return popcount(static_cast<unsigned int>(m));
+#endif
+}
+
+// Portable count trailing zeros (input must be non-zero)
+inline int ctz(Mask m)
+{
+#if defined(_MSC_VER)
+    unsigned long index;
+    _BitScanForward(&index, static_cast<unsigned long>(m));
+    return static_cast<int>(index);
+#else
+    return ctz(static_cast<unsigned int>(m));
+#endif
+}
 
 Sudoku::Sudoku()
 	: _grid{}, _solution{}, _solved(false)
@@ -131,7 +159,7 @@ void Sudoku::_updateCandidates(int row, int col)
 
 int Sudoku::_countBits(Mask m) const
 {
-	return __builtin_popcount(m);
+	return popcount(m);
 }
 
 int Sudoku::_findBestCell() const
@@ -173,7 +201,7 @@ bool Sudoku::_nakedSingles()
 		if (_solution[i] == 0) {
 			Mask candidates = _cell_candidates[i];
 			if (candidates && (candidates & (candidates - 1)) == 0) {
-				int num = __builtin_ctz(candidates);
+				int num = ctz(candidates);
 				int r = i / 9, c = i % 9;
 				_solution[i] = num;
 				Mask m = DIGIT_MASK[num];
@@ -297,7 +325,7 @@ bool Sudoku::_solveRecursive()
 	// Try each candidate
 	while (candidates) {
 		Mask m = candidates & -candidates;
-		int num = __builtin_ctz(m);
+		int num = ctz(m);
 		candidates &= candidates - 1;
 
 		// Place digit
