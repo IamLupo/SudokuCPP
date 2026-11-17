@@ -25,19 +25,6 @@ void benchmark(const char* name, const Grid& puzzle, Grid& solution)
 	}
 }
 
-// Known hard puzzle (AI Escargot / "Easter Monster" variant)
-static const Grid HARD_PUZZLE = {{
-	0,0,0, 0,0,0, 0,0,0,
-	0,0,0, 0,0,3, 0,8,5,
-	0,0,1, 0,2,0, 0,0,0,
-	0,0,0, 5,0,7, 0,0,0,
-	0,0,4, 0,0,0, 1,0,0,
-	0,9,0, 0,0,0, 0,0,0,
-	5,0,0, 0,0,0, 0,7,3,
-	0,0,2, 0,1,0, 0,0,0,
-	0,0,0, 0,4,0, 0,0,9
-}};
-
 int main()
 {
 	std::cout << "Starting...\n";
@@ -110,11 +97,11 @@ int main()
 	std::cout << "\n=== Hard Puzzle Test (AI Escargot) ===\n";
 	Grid hard_solution;
 
-	SudokuDLX::Draw(HARD_PUZZLE, true);
+	SudokuDLX::Draw(Sudoku::HARD_PUZZLE, true);
 	std::cout << "\n";
 
 	{
-		Sudoku s(HARD_PUZZLE);
+		Sudoku s(Sudoku::HARD_PUZZLE);
 		auto start = Clock::now();
 		bool solved = s.solve();
 		auto end = Clock::now();
@@ -132,7 +119,7 @@ int main()
 
 	{
 		auto start = Clock::now();
-		bool solved = SudokuDLX::solve(HARD_PUZZLE, hard_solution);
+		bool solved = SudokuDLX::solve(Sudoku::HARD_PUZZLE, hard_solution);
 		auto end = Clock::now();
 		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
 		std::cout << "DLX (Algorithm X): ";
@@ -149,9 +136,9 @@ int main()
 
 	// Warmup
 	for (int i = 0; i < 3; ++i) {
-		Sudoku s(HARD_PUZZLE);
+		Sudoku s(Sudoku::HARD_PUZZLE);
 		s.solve();
-		SudokuDLX::solve(HARD_PUZZLE, hard_solution);
+		SudokuDLX::solve(Sudoku::HARD_PUZZLE, hard_solution);
 	}
 
 	// Benchmark bitmask solver on hard puzzle
@@ -159,7 +146,7 @@ int main()
 		auto start = Clock::now();
 		for (int i = 0; i < 50; ++i)
 		{
-			Sudoku s(HARD_PUZZLE);
+			Sudoku s(Sudoku::HARD_PUZZLE);
 			s.solve();
 		}
 		auto end = Clock::now();
@@ -173,7 +160,7 @@ int main()
 		auto start = Clock::now();
 		for (int i = 0; i < 50; ++i)
 		{
-			SudokuDLX::solve(HARD_PUZZLE, hard_solution);
+			SudokuDLX::solve(Sudoku::HARD_PUZZLE, hard_solution);
 		}
 		auto end = Clock::now();
 		auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
