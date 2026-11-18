@@ -204,12 +204,17 @@ bool Sudoku::solve()
 	std::fill(std::begin(_cols), std::end(_cols), 0);
 	std::fill(std::begin(_boxes), std::end(_boxes), 0);
 
-	// Initialize masks from givens
+	// Initialize masks from givens with validation
 	for (int r = 0; r < N; ++r) {
 		for (int c = 0; c < N; ++c) {
 			int num = _solution[idx(r, c)];
 			if (num != 0) {
+				// Validate input range
+				if (num < 1 || num > 9) return false;
 				Mask m = DIGIT_MASK[num];
+				// Check for conflicting givens (same digit already in row/col/box)
+				if ((_rows[r] & m) || (_cols[c] & m) || (_boxes[BOX_OF[idx(r, c)]] & m))
+					return false;
 				_rows[r] |= m;
 				_cols[c] |= m;
 				_boxes[BOX_OF[idx(r, c)]] |= m;
@@ -355,6 +360,12 @@ int Sudoku::_findBestCell() const
 
 		for (int j = 0; j < process; ++j) {
 			int c = counts[j];
+			// Only flag contradiction for EMPTY cells (chunk_solution[j] == 0)
+			// Filled cells have c == 0 after masking but are not contradictions
+			if (c == 0 && chunk_solution[j] == 0) {
+				// Contradiction: empty cell with no candidates -> fail fast
+				return base + j;
+			}
 			if (c > 0 && c < min_count) {
 				min_count = c;
 				best_idx = base + j;
