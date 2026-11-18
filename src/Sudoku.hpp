@@ -5,42 +5,6 @@
 #include <cstdint>
 #include <string>
 
-// Compile-time generated tables using std::array (C++17)
-inline constexpr auto PEERS = []() {
-	std::array<std::array<int, 20>, 81> p{};
-	for (int cell = 0; cell < 81; ++cell) {
-		const int row = cell / 9;
-		const int col = cell % 9;
-		const int box = (row / 3) * 3 + (col / 3);
-		int count = 0;
-		for (int other = 0; other < 81; ++other) {
-			if (other == cell) continue;
-			const int otherRow = other / 9;
-			const int otherCol = other % 9;
-			const int otherBox = (otherRow / 3) * 3 + (otherCol / 3);
-			if (otherRow == row || otherCol == col || otherBox == box) {
-				p[cell][count++] = other;
-			}
-		}
-	}
-	return p;
-}();
-
-inline constexpr auto BOX_CELLS = []() {
-	std::array<std::array<int, 9>, 9> b{};
-	for (int box = 0; box < 9; ++box) {
-		int count = 0;
-		for (int cell = 0; cell < 81; ++cell) {
-			const int row = cell / 9;
-			const int col = cell % 9;
-			if ((row / 3) * 3 + (col / 3) == box) {
-				b[box][count++] = cell;
-			}
-		}
-	}
-	return b;
-}();
-
 class Sudoku
 {
 public:
@@ -55,6 +19,42 @@ public:
 
 	// Static utility functions
 	static constexpr int idx(int r, int c) { return r * 9 + c; }
+
+	// Precomputed lookup tables (compile-time initialized via lambdas)
+	static constexpr auto PEERS = []() {
+		std::array<std::array<int, 20>, 81> p{};
+		for (int cell = 0; cell < 81; ++cell) {
+			const int row = cell / 9;
+			const int col = cell % 9;
+			const int box = (row / 3) * 3 + (col / 3);
+			int count = 0;
+			for (int other = 0; other < 81; ++other) {
+				if (other == cell) continue;
+				const int otherRow = other / 9;
+				const int otherCol = other % 9;
+				const int otherBox = (otherRow / 3) * 3 + (otherCol / 3);
+				if (otherRow == row || otherCol == col || otherBox == box) {
+					p[cell][count++] = other;
+				}
+			}
+		}
+		return p;
+	}();
+
+	static constexpr auto BOX_CELLS = []() {
+		std::array<std::array<int, 9>, 9> b{};
+		for (int box = 0; box < 9; ++box) {
+			int count = 0;
+			for (int cell = 0; cell < 81; ++cell) {
+				const int row = cell / 9;
+				const int col = cell % 9;
+				if ((row / 3) * 3 + (col / 3) == box) {
+					b[box][count++] = cell;
+				}
+			}
+		}
+		return b;
+	}();
 
 	// 2. Static data members
 	static constexpr Grid EXAMPLE_PUZZLE = {
