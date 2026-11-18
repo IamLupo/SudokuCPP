@@ -4,7 +4,6 @@
 #include <array>
 #include <cstdint>
 #include <string>
-#include <algorithm>
 
 class Sudoku
 {
@@ -105,10 +104,10 @@ public:
 	};
 
 	// Precomputed peers for each cell (20 peers: 8 row + 8 col + 4 box excluding self)
-	static const std::array<std::array<int, 20>, 81>& PEERS();
+	static int PEERS[81][20];
 
 	// Precomputed cells in each box (9 cells per box)
-	static const std::array<std::array<int, 9>, 9>& BOX_CELLS();
+	static int BOX_CELLS[9][9];
 
 private:
 	// Member variables (early visibility of state)

@@ -18,48 +18,46 @@
 
 using Mask = Sudoku::Mask;
 
-// Precomputed peers for each cell (20 peers: same row, col, box excluding self)
-const std::array<std::array<int, 20>, 81>& Sudoku::PEERS() {
-    static const std::array<std::array<int, 20>, 81> peers = []() {
-        std::array<std::array<int, 20>, 81> p{};
+namespace {
+    void init_peers(int peers[81][20]) {
         for (int i = 0; i < 81; ++i) {
-            int r = i / 9, c = i % 9, b = Sudoku::BOX_OF[i];
+            int r = i / 9, c = i % 9;
             int idx = 0;
-            // Row peers
-            for (int cc = 0; cc < 9; ++cc) if (cc != c) p[i][idx++] = Sudoku::idx(r, cc);
-            // Col peers
-            for (int rr = 0; rr < 9; ++rr) if (rr != r) p[i][idx++] = Sudoku::idx(rr, c);
-            // Box peers
+            for (int cc = 0; cc < 9; ++cc) if (cc != c) peers[i][idx++] = Sudoku::idx(r, cc);
+            for (int rr = 0; rr < 9; ++rr) if (rr != r) peers[i][idx++] = Sudoku::idx(rr, c);
             int br = (r / 3) * 3, bc = (c / 3) * 3;
             for (int dr = 0; dr < 3; ++dr) {
                 for (int dc = 0; dc < 3; ++dc) {
                     int rr = br + dr, cc = bc + dc;
-                    if (rr != r || cc != c) p[i][idx++] = Sudoku::idx(rr, cc);
+                    if (rr != r || cc != c) peers[i][idx++] = Sudoku::idx(rr, cc);
                 }
             }
         }
-        return p;
-    }();
-    return peers;
-}
+    }
 
-// Precomputed cells in each box (9 cells per box)
-const std::array<std::array<int, 9>, 9>& Sudoku::BOX_CELLS() {
-    static const std::array<std::array<int, 9>, 9> box_cells = []() {
-        std::array<std::array<int, 9>, 9> bc{};
+    void init_box_cells(int box_cells[9][9]) {
         for (int b = 0; b < 9; ++b) {
             int p = 0;
-            int br = (b / 3) * 3, bcc = (b % 3) * 3;
+            int br = (b / 3) * 3, bc = (b % 3) * 3;
             for (int dr = 0; dr < 3; ++dr) {
                 for (int dc = 0; dc < 3; ++dc) {
-                    bc[b][p++] = Sudoku::idx(br + dr, bcc + dc);
+                    box_cells[b][p++] = Sudoku::idx(br + dr, bc + dc);
                 }
             }
         }
-        return bc;
-    }();
-    return box_cells;
+    }
 }
+
+int Sudoku::PEERS[81][20];
+int Sudoku::BOX_CELLS[9][9];
+
+// Force initialization at program startup
+struct SudokuTablesInit {
+    SudokuTablesInit() {
+        init_peers(Sudoku::PEERS);
+        init_box_cells(Sudoku::BOX_CELLS);
+    }
+} g_sudoku_tables_init;
 
 
 // Portable popcount
@@ -593,7 +591,7 @@ bool Sudoku::_hiddenSingles()
 			int count = 0, last_cell = -1;
 			// Iterate only 9 cells in this box instead of all 81
 			for (int k = 0; k < 9; ++k) {
-				int i = BOX_CELLS()[b][k];
+				int i = BOX_CELLS[b][k];
 				if (_solution[i] == 0 && (_cell_candidates[i] & m)) {
 					count++;
 					last_cell = i;
@@ -653,7 +651,7 @@ bool Sudoku::_solveRecursive()
 		// Use PEERS lookup - only 20 peers per cell
 		Mask saved[20];
 		for (int k = 0; k < 20; ++k) {
-			int peer = PEERS()[cell][k];
+			int peer = PEERS[cell][k];
 			saved[k] = _cell_candidates[peer];
 			if (_solution[peer] == 0) {
 				_cell_candidates[peer] &= ~m;
@@ -674,7 +672,7 @@ bool Sudoku::_solveRecursive()
 
 		// Restore candidates for peers
 		for (int k = 0; k < 20; ++k) {
-			int peer = PEERS()[cell][k];
+			int peer = PEERS[cell][k];
 			_cell_candidates[peer] = saved[k];
 		}
 	}
