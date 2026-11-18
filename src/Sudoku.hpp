@@ -5,6 +5,57 @@
 #include <cstdint>
 #include <string>
 
+// Compile-time generated tables via constexpr struct (C++17)
+struct SudokuTables {
+	int PEERS[81][20];
+	int BOX_CELLS[9][9];
+};
+
+constexpr SudokuTables GenerateTables() {
+	SudokuTables tables{};
+
+	// Generate PEERS: for each cell, find its 20 peers (same row/col/box)
+	for (int cell = 0; cell < 81; ++cell) {
+		const int row = cell / 9;
+		const int col = cell % 9;
+		const int box = (row / 3) * 3 + (col / 3);
+		int count = 0;
+
+		for (int other = 0; other < 81; ++other) {
+			if (other == cell) continue;
+			const int otherRow = other / 9;
+			const int otherCol = other % 9;
+			const int otherBox = (otherRow / 3) * 3 + (otherCol / 3);
+
+			if (otherRow == row || otherCol == col || otherBox == box) {
+				tables.PEERS[cell][count++] = other;
+			}
+		}
+	}
+
+	// Generate BOX_CELLS: 9 cells per box
+	for (int box = 0; box < 9; ++box) {
+		int count = 0;
+		for (int cell = 0; cell < 81; ++cell) {
+			const int row = cell / 9;
+			const int col = cell % 9;
+			if ((row / 3) * 3 + (col / 3) == box) {
+				tables.BOX_CELLS[box][count++] = cell;
+			}
+		}
+	}
+
+	return tables;
+}
+
+// Compile-time constant tables
+inline constexpr SudokuTables TABLES = GenerateTables();
+
+// Convenient C-style array references (no runtime cost)
+// Note: TABLES is constexpr so arrays are const, need const references
+inline constexpr const int (&PEERS)[81][20] = TABLES.PEERS;
+inline constexpr const int (&BOX_CELLS)[9][9] = TABLES.BOX_CELLS;
+
 class Sudoku
 {
 public:
@@ -17,7 +68,7 @@ public:
 	// Fully bit-packed grid: 81 cells × 4 bits = 324 bits = 6 × uint64_t (48 bytes)
 	using PackedGrid = std::array<uint64_t, 6>;
 
-	// Static utility functions (must be before arrays that use them)
+	// Static utility functions
 	static constexpr int idx(int r, int c) { return r * 9 + c; }
 
 	// 2. Static data members
@@ -102,12 +153,6 @@ public:
 		6,6,6, 7,7,7, 8,8,8,
 		6,6,6, 7,7,7, 8,8,8
 	};
-
-	// Precomputed peers for each cell (20 peers: 8 row + 8 col + 4 box excluding self)
-	static int PEERS[81][20];
-
-	// Precomputed cells in each box (9 cells per box)
-	static int BOX_CELLS[9][9];
 
 private:
 	// Member variables (early visibility of state)

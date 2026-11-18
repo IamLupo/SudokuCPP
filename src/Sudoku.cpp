@@ -18,47 +18,6 @@
 
 using Mask = Sudoku::Mask;
 
-namespace {
-    void init_peers(int peers[81][20]) {
-        for (int i = 0; i < 81; ++i) {
-            int r = i / 9, c = i % 9;
-            int idx = 0;
-            for (int cc = 0; cc < 9; ++cc) if (cc != c) peers[i][idx++] = Sudoku::idx(r, cc);
-            for (int rr = 0; rr < 9; ++rr) if (rr != r) peers[i][idx++] = Sudoku::idx(rr, c);
-            int br = (r / 3) * 3, bc = (c / 3) * 3;
-            for (int dr = 0; dr < 3; ++dr) {
-                for (int dc = 0; dc < 3; ++dc) {
-                    int rr = br + dr, cc = bc + dc;
-                    if (rr != r || cc != c) peers[i][idx++] = Sudoku::idx(rr, cc);
-                }
-            }
-        }
-    }
-
-    void init_box_cells(int box_cells[9][9]) {
-        for (int b = 0; b < 9; ++b) {
-            int p = 0;
-            int br = (b / 3) * 3, bc = (b % 3) * 3;
-            for (int dr = 0; dr < 3; ++dr) {
-                for (int dc = 0; dc < 3; ++dc) {
-                    box_cells[b][p++] = Sudoku::idx(br + dr, bc + dc);
-                }
-            }
-        }
-    }
-}
-
-int Sudoku::PEERS[81][20];
-int Sudoku::BOX_CELLS[9][9];
-
-// Force initialization at program startup
-struct SudokuTablesInit {
-    SudokuTablesInit() {
-        init_peers(Sudoku::PEERS);
-        init_box_cells(Sudoku::BOX_CELLS);
-    }
-} g_sudoku_tables_init;
-
 
 // Portable popcount
 inline int popcount(Mask m)
