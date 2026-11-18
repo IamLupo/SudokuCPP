@@ -25,31 +25,6 @@ void benchmark(const char* name, const Grid& puzzle, Grid& solution)
 	}
 }
 
-// Additional test puzzles for correctness verification
-static const Grid DEEP_BACKTRACK = {{
-	0,0,5, 3,0,0, 0,0,0,
-	8,0,0, 0,0,0, 0,2,0,
-	0,7,0, 0,1,0, 5,0,0,
-	4,0,0, 0,0,5, 3,0,0,
-	0,1,0, 0,7,0, 0,0,6,
-	0,0,3, 2,0,0, 0,8,0,
-	0,6,0, 5,0,0, 0,0,9,
-	0,0,4, 0,0,0, 0,3,0,
-	0,0,0, 0,0,9, 7,0,0
-}};
-
-static const Grid PUZZLE_17_CLUES = {{
-	0,0,0, 0,0,0, 0,0,0,
-	0,0,0, 0,0,3, 0,8,5,
-	0,0,1, 0,2,0, 0,0,0,
-	0,0,0, 5,0,7, 0,0,0,
-	0,0,4, 0,0,0, 1,0,0,
-	0,9,0, 0,0,0, 0,0,0,
-	5,0,0, 0,0,0, 0,7,3,
-	0,0,2, 0,1,0, 0,0,0,
-	0,0,0, 0,4,0, 0,0,9
-}};
-
 void test_puzzle(const char* name, const Grid& puzzle)
 {
 	std::cout << "\n=== " << name << " ===\n";
@@ -248,8 +223,8 @@ int main()
 	std::cout << "PackedGrid size: " << sizeof(Sudoku::PackedGrid) << " bytes\n";
 
 	// Correctness tests with multiple puzzles (skip deep backtrack as it's very slow)
-	// test_puzzle("Deep Backtrack", DEEP_BACKTRACK);
-	test_puzzle("17 Clues (Hard)", PUZZLE_17_CLUES);
+	// test_puzzle("Deep Backtrack", Sudoku::DEEP_BACKTRACK);
+	test_puzzle("17 Clues (Hard)", Sudoku::PUZZLE_17_CLUES);
 	test_puzzle("Example Puzzle", Sudoku::EXAMPLE_PUZZLE);
 	test_puzzle("AI Escargot", Sudoku::HARD_PUZZLE);
 
