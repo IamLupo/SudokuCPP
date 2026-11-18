@@ -47,17 +47,6 @@ public:
 		0,0,0, 0,4,0, 0,0,9
 	};
 
-private:
-	// Member variables (early visibility of state)
-	Grid _grid;
-	Grid _solution;
-	bool _solved;
-
-	// Bitmask state for O(1) constraint checking
-	Mask _rows[9] = {};
-	Mask _cols[9] = {};
-	Mask _boxes[9] = {};
-
 	// Precomputed lookup tables
 	static constexpr Mask DIGIT_MASK[10] = {
 		0,          // 0 (unused)
@@ -85,6 +74,17 @@ private:
 		6,6,6, 7,7,7, 8,8,8,
 		6,6,6, 7,7,7, 8,8,8
 	};
+
+private:
+	// Member variables (early visibility of state)
+	Grid _grid;
+	Grid _solution;
+	bool _solved;
+
+	// Bitmask state for O(1) constraint checking
+	Mask _rows[9] = {};
+	Mask _cols[9] = {};
+	Mask _boxes[9] = {};
 
 	// Bit-packed candidates for each cell (4 bits per cell = 81 × 4 = 324 bits)
 	// Stored as flat array for cache efficiency
