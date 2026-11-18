@@ -25,6 +25,71 @@ void benchmark(const char* name, const Grid& puzzle, Grid& solution)
 	}
 }
 
+// Additional test puzzles for correctness verification
+static const Grid DEEP_BACKTRACK = {{
+	0,0,5, 3,0,0, 0,0,0,
+	8,0,0, 0,0,0, 0,2,0,
+	0,7,0, 0,1,0, 5,0,0,
+	4,0,0, 0,0,5, 3,0,0,
+	0,1,0, 0,7,0, 0,0,6,
+	0,0,3, 2,0,0, 0,8,0,
+	0,6,0, 5,0,0, 0,0,9,
+	0,0,4, 0,0,0, 0,3,0,
+	0,0,0, 0,0,9, 7,0,0
+}};
+
+static const Grid PUZZLE_17_CLUES = {{
+	0,0,0, 0,0,0, 0,0,0,
+	0,0,0, 0,0,3, 0,8,5,
+	0,0,1, 0,2,0, 0,0,0,
+	0,0,0, 5,0,7, 0,0,0,
+	0,0,4, 0,0,0, 1,0,0,
+	0,9,0, 0,0,0, 0,0,0,
+	5,0,0, 0,0,0, 0,7,3,
+	0,0,2, 0,1,0, 0,0,0,
+	0,0,0, 0,4,0, 0,0,9
+}};
+
+void test_puzzle(const char* name, const Grid& puzzle)
+{
+	std::cout << "\n=== " << name << " ===\n";
+	Grid sol1, sol2;
+
+	Sudoku s1(puzzle);
+	auto start1 = Clock::now();
+	bool solved1 = s1.solve();
+	auto end1 = Clock::now();
+
+	// Get solution from Sudoku instance
+	if (solved1) sol1 = s1.getSolution();
+
+	SudokuDLX::solve(puzzle, sol2);
+	auto start2 = Clock::now();
+	bool solved2 = SudokuDLX::solve(puzzle, sol2);
+	auto end2 = Clock::now();
+
+	if (solved1 && solved2) {
+		auto d1 = std::chrono::duration_cast<std::chrono::microseconds>(end1 - start1).count();
+		auto d2 = std::chrono::duration_cast<std::chrono::microseconds>(end2 - start2).count();
+		std::cout << "Bitmask: " << d1 << " µs\n";
+		std::cout << "DLX: " << d2 << " µs\n";
+
+		// Verify solutions match
+		if (sol1 == sol2) {
+			std::cout << "Solutions: MATCH\n";
+		} else {
+			std::cout << "Solutions: MISMATCH!\n";
+			s1.Draw(false);
+			SudokuDLX::Draw(sol2, false);
+		}
+	} else if (!solved1 && !solved2) {
+		std::cout << "Both failed (unsolvable?)\n";
+	} else {
+		std::cout << "MISMATCH: Bitmask=" << (solved1 ? "solved" : "failed")
+			<< " DLX=" << (solved2 ? "solved" : "failed") << "\n";
+	}
+}
+
 int main()
 {
 	std::cout << "Starting...\n";
@@ -181,6 +246,12 @@ int main()
 	std::cout << "Pack/Unpack: " << (match ? "PASS" : "FAIL") << "\n";
 	std::cout << "Grid size: " << sizeof(Grid) << " bytes\n";
 	std::cout << "PackedGrid size: " << sizeof(Sudoku::PackedGrid) << " bytes\n";
+
+	// Correctness tests with multiple puzzles (skip deep backtrack as it's very slow)
+	// test_puzzle("Deep Backtrack", DEEP_BACKTRACK);
+	test_puzzle("17 Clues (Hard)", PUZZLE_17_CLUES);
+	test_puzzle("Example Puzzle", Sudoku::EXAMPLE_PUZZLE);
+	test_puzzle("AI Escargot", Sudoku::HARD_PUZZLE);
 
 	return 0;
 }
