@@ -5,56 +5,41 @@
 #include <cstdint>
 #include <string>
 
-// Compile-time generated tables via constexpr struct (C++17)
-struct SudokuTables {
-	int PEERS[81][20];
-	int BOX_CELLS[9][9];
-};
-
-constexpr SudokuTables GenerateTables() {
-	SudokuTables tables{};
-
-	// Generate PEERS: for each cell, find its 20 peers (same row/col/box)
+// Compile-time generated tables using std::array (C++17)
+inline constexpr auto PEERS = []() {
+	std::array<std::array<int, 20>, 81> p{};
 	for (int cell = 0; cell < 81; ++cell) {
 		const int row = cell / 9;
 		const int col = cell % 9;
 		const int box = (row / 3) * 3 + (col / 3);
 		int count = 0;
-
 		for (int other = 0; other < 81; ++other) {
 			if (other == cell) continue;
 			const int otherRow = other / 9;
 			const int otherCol = other % 9;
 			const int otherBox = (otherRow / 3) * 3 + (otherCol / 3);
-
 			if (otherRow == row || otherCol == col || otherBox == box) {
-				tables.PEERS[cell][count++] = other;
+				p[cell][count++] = other;
 			}
 		}
 	}
+	return p;
+}();
 
-	// Generate BOX_CELLS: 9 cells per box
+inline constexpr auto BOX_CELLS = []() {
+	std::array<std::array<int, 9>, 9> b{};
 	for (int box = 0; box < 9; ++box) {
 		int count = 0;
 		for (int cell = 0; cell < 81; ++cell) {
 			const int row = cell / 9;
 			const int col = cell % 9;
 			if ((row / 3) * 3 + (col / 3) == box) {
-				tables.BOX_CELLS[box][count++] = cell;
+				b[box][count++] = cell;
 			}
 		}
 	}
-
-	return tables;
-}
-
-// Compile-time constant tables
-inline constexpr SudokuTables TABLES = GenerateTables();
-
-// Convenient C-style array references (no runtime cost)
-// Note: TABLES is constexpr so arrays are const, need const references
-inline constexpr const int (&PEERS)[81][20] = TABLES.PEERS;
-inline constexpr const int (&BOX_CELLS)[9][9] = TABLES.BOX_CELLS;
+	return b;
+}();
 
 class Sudoku
 {
