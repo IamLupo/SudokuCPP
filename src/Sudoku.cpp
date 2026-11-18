@@ -280,13 +280,6 @@ void Sudoku::Draw(bool draw_start) const
 	std::cout << "+-------+-------+-------+\n";
 }
 
-bool Sudoku::_isValid(int row, int col, int num) const
-{
-	Mask m = DIGIT_MASK[num];
-	int b = BOX_OF[idx(row, col)];
-	return !(_rows[row] & m) && !(_cols[col] & m) && !(_boxes[b] & m);
-}
-
 Mask Sudoku::_getCandidates(int row, int col) const
 {
 	int b = BOX_OF[idx(row, col)];

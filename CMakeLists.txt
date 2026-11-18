@@ -59,11 +59,13 @@ else()
     set(LTO_ENABLED_FLAGS "")
 endif()
 
-# Combine all flags
+# Combine all flags (Release only - Debug gets no optimization flags)
 set(COMMON_FLAGS "${BASE_OPT_FLAGS} ${PGO_FLAGS} ${LTO_ENABLED_FLAGS}")
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_FLAGS}")
+# Apply optimization flags ONLY to Release/RelWithDebInfo configs
 set(CMAKE_CXX_FLAGS_RELEASE "${COMMON_FLAGS}")
+set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${COMMON_FLAGS}")
+# Debug gets default flags (no /O2, no LTO, no AVX2)
 
 add_executable(hello src/main.cpp src/Sudoku.cpp src/SudokuDLX.cpp)
 target_include_directories(hello PRIVATE src)

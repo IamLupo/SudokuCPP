@@ -150,8 +150,8 @@ private:
 	Mask _cols[9] = {};
 	Mask _boxes[9] = {};
 
-	// Bit-packed candidates for each cell (4 bits per cell = 81 × 4 = 324 bits)
-	// Stored as flat array for cache efficiency
+	// Bit-packed candidates for each cell (Mask = uint16_t = 16 bits, bits 1-9 used)
+	// 81 cells × 16 bits = 162 bytes
 	Mask _cell_candidates[81];
 
 public:
@@ -180,7 +180,6 @@ public:
 
 private:
 	// Private helper functions
-	bool _isValid(int row, int col, int num) const;
 	Mask _getCandidates(int row, int col) const;
 	void _updateCandidates(int row, int col);
 	int _countBits(Mask m) const;

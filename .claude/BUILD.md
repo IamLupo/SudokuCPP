@@ -42,7 +42,7 @@ cmake --build build_pgo_use --config Release
 ./build_pgo_use/hello
 ```
 
-**Or use the helper script:**
+**Or use the helper script (Linux/macOS/WSL only):**
 ```bash
 ./scripts/pgo_build.sh clang   # or gcc
 ```
@@ -56,7 +56,14 @@ cmake --build build_pgo_gen --config Release
 # Run to generate .pgc/.pgd files
 ./build_pgo_gen/Release/hello.exe
 
-# Phase 2: Use (separate build dir, different flags)
-# Note: MSVC PGO requires manual /GENPROFILE /USEPROFILE on command line
-# See: https://learn.microsoft.com/en-us/cpp/build/reference/profile-guided-optimizations
+# Phase 2: Use (separate build dir)
+# MSVC requires /USEPROFILE pointing to the .pgd file
+cmake -B build_pgo_use -S . -DENABLE_PGO=ON -DENABLE_LTO=ON ^
+  -DCMAKE_CXX_FLAGS="/USEPROFILE:build_pgo_gen/hello.pgd"
+cmake --build build_pgo_use --config Release
+
+# Run PGO-optimized binary
+./build_pgo_use/Release/hello.exe
 ```
+
+> **Note:** `scripts/pgo_build.sh` is for Clang/GCC on Linux/macOS/WSL only. MSVC PGO uses a different workflow with `.pgd` files.
