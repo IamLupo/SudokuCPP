@@ -32,14 +32,24 @@ else()
     set(PGO_USE_FLAGS "")
 endif()
 
-# PGO support (only for Clang/GCC which support single-directory PGO)
+# PGO support - requires two-phase build (generate profile, then use profile)
+# Phase 1: Build with -fprofile-generate, run workload, merge profiles
+# Phase 2: Build with -fprofile-use=<merged.profdata>
 if(ENABLE_PGO AND (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU"))
-    set(PGO_FLAGS "${PGO_GENERATE_FLAGS} ${PGO_USE_FLAGS}")
+    # Default to generate phase; user switches to use phase manually
+    if(DEFINED ENV{PGO_USE_PROFILE})
+        set(PGO_FLAGS "${PGO_USE_FLAGS}=$ENV{PGO_USE_PROFILE}")
+        message(STATUS "PGO: USE phase (profile: $ENV{PGO_USE_PROFILE})")
+    else()
+        set(PGO_FLAGS "${PGO_GENERATE_FLAGS}")
+        message(STATUS "PGO: GENERATE phase (run benchmarks, then rebuild with PGO_USE_PROFILE=merged.profdata)")
+    endif()
+elseif(ENABLE_PGO AND CMAKE_CXX_COMPILER_ID MATCHES "MSVC")
+    # MSVC two-phase PGO: /GENPROFILE then /USEPROFILE (separate build dirs)
+    message(WARNING "MSVC PGO: Use manual two-phase build. See cmake --help for /GENPROFILE and /USEPROFILE")
+    set(PGO_FLAGS "")
 else()
     set(PGO_FLAGS "")
-    if(ENABLE_PGO)
-        message(WARNING "PGO with single-directory build only supported on Clang/GCC. On MSVC, use manual two-phase build.")
-    endif()
 endif()
 
 # LTO support
