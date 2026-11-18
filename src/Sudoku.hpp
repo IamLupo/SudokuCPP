@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <algorithm>
 
 class Sudoku
 {
@@ -16,6 +17,9 @@ public:
 
 	// Fully bit-packed grid: 81 cells × 4 bits = 324 bits = 6 × uint64_t (48 bytes)
 	using PackedGrid = std::array<uint64_t, 6>;
+
+	// Static utility functions (must be before arrays that use them)
+	static constexpr int idx(int r, int c) { return r * 9 + c; }
 
 	// 2. Static data members
 	static constexpr Grid EXAMPLE_PUZZLE = {
@@ -100,6 +104,12 @@ public:
 		6,6,6, 7,7,7, 8,8,8
 	};
 
+	// Precomputed peers for each cell (20 peers: 8 row + 8 col + 4 box excluding self)
+	static const std::array<std::array<int, 20>, 81>& PEERS();
+
+	// Precomputed cells in each box (9 cells per box)
+	static const std::array<std::array<int, 9>, 9>& BOX_CELLS();
+
 private:
 	// Member variables (early visibility of state)
 	Grid _grid;
@@ -132,7 +142,6 @@ public:
 	void Draw(bool draw_start = true) const;
 
 	// Cell access helpers
-	static constexpr int idx(int r, int c) { return r * 9 + c; }
 	int get(int r, int c) const { return _grid[idx(r, c)]; }
 	int getSolution(int r, int c) const { return _solution[idx(r, c)]; }
 

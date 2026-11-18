@@ -3,7 +3,6 @@
 
 #include <array>
 #include <cstdint>
-#include <vector>
 
 class SudokuDLX
 {
@@ -18,7 +17,7 @@ public:
 	static constexpr int COLS = 324;
 	static constexpr int ROWS = 729; // 9×9×9 = 729 possible placements
 
-private:
+public:
 	// DLX node structure
 	struct Node {
 		Node* left = nullptr;
@@ -31,10 +30,9 @@ private:
 		int size = 0;         // column size (only valid for column headers)
 	};
 
-public:
 	// Draw grid to stdout (same signature as Sudoku::Draw)
 	static void Draw(const Grid& grid, bool draw_start = true);
-	
+
 	// Solve puzzle using Algorithm X with Dancing Links
 	// Returns true if solved, false if no solution
 	static bool solve(const Grid& puzzle, Grid& solution);
@@ -43,18 +41,19 @@ public:
 	static bool validate(const Grid& grid);
 
 private:
-	// Build the DLX matrix for a given puzzle
-	static void buildMatrix(const Grid& puzzle, std::vector<Node>& nodes, Node* headers[COLS]);
+	// Build the DLX matrix for a given puzzle (uses fixed node buffer)
+	static void buildMatrix(const Grid& puzzle, Node* headers[COLS]);
 
 	// Cover/uncover column
 	static void cover(Node* c);
 	static void uncover(Node* c);
 
 	// Search with heuristic (choose column with minimum size)
-	static bool search(Node* headers[COLS], std::vector<int>& solution_rows, int depth = 0);
+	// Uses fixed buffer for solution_rows (max 81)
+	static bool search(Node* headers[COLS], int* solution_rows, int& solution_count, int depth = 0);
 
 	// Decode solution rows back to grid
-	static void decodeSolution(const std::vector<int>& solution_rows, Grid& solution);
+	static void decodeSolution(const int* solution_rows, int solution_count, Grid& solution);
 
 	// Constraint column index calculations
 	static constexpr int idx(int r, int c) { return r * 9 + c; }

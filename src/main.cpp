@@ -98,11 +98,14 @@ int main()
 	// Benchmark multiple runs (use example puzzle which is easier)
 	std::cout << "\n=== Performance Test (100 iterations on example puzzle) ===\n";
 
-	// Warmup
+	// Warmup - fair: both solvers get same warmup
 	for (int i = 0; i < 5; ++i)
 	{
 		Sudoku s(puzzle);
 		s.solve();
+	}
+	for (int i = 0; i < 5; ++i)
+	{
 		SudokuDLX::solve(puzzle, solution);
 	}
 
@@ -174,10 +177,12 @@ int main()
 	// Benchmark hard puzzle multiple runs
 	std::cout << "\n=== Hard Puzzle Benchmark (50 iterations) ===\n";
 
-	// Warmup
+	// Warmup - fair: both solvers get same warmup
 	for (int i = 0; i < 3; ++i) {
 		Sudoku s(Sudoku::HARD_PUZZLE);
 		s.solve();
+	}
+	for (int i = 0; i < 3; ++i) {
 		SudokuDLX::solve(Sudoku::HARD_PUZZLE, hard_solution);
 	}
 

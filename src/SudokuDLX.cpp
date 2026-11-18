@@ -3,6 +3,21 @@
 #include <climits>
 #include <iostream>
 
+// Fixed buffer for nodes - avoids heap allocation
+// Max nodes: 324 headers + 729 rows * 4 nodes = 3240
+static constexpr int MAX_NODES = 3240;
+// Use dynamic allocation to avoid static initialization issues
+static SudokuDLX::Node* g_node_buffer = nullptr;
+static int g_node_count = 0;
+static bool g_buffer_init = false;
+
+static void init_node_buffer() {
+    if (!g_buffer_init) {
+        g_node_buffer = new SudokuDLX::Node[MAX_NODES];
+        g_buffer_init = true;
+    }
+}
+
 bool SudokuDLX::solve(const Grid& puzzle, Grid& solution)
 {
 	// Validate input
@@ -12,19 +27,21 @@ bool SudokuDLX::solve(const Grid& puzzle, Grid& solution)
 		if (v < 0 || v > 9) return false;
 	}
 
-	// Pre-allocate nodes: 1 header per column + up to 4 nodes per row × 729 rows
-	std::vector<Node> nodes;
-	nodes.reserve(COLS + ROWS * 4);
+	// Initialize node buffer on first use
+	init_node_buffer();
+
+	// Reset node buffer
+	g_node_count = 0;
 
 	// Create column headers
 	Node* headers[COLS] = {};
 	for (int i = 0; i < COLS; ++i)
 	{
-		nodes.emplace_back();
-		headers[i] = &nodes.back();
-		headers[i]->constraint_id = i;
-		headers[i]->size = 0;
-		headers[i]->up = headers[i]->down = headers[i];
+		Node* node = &g_node_buffer[g_node_count++];
+		headers[i] = node;
+		node->constraint_id = i;
+		node->size = 0;
+		node->up = node->down = node;
 	}
 
 	// Link headers horizontally
@@ -34,22 +51,22 @@ bool SudokuDLX::solve(const Grid& puzzle, Grid& solution)
 		headers[i]->left = headers[(i - 1 + COLS) % COLS];
 	}
 
-	buildMatrix(puzzle, nodes, headers);
+	buildMatrix(puzzle, headers);
 
-	std::vector<int> solution_rows;
-	solution_rows.reserve(81);
+	// Fixed buffer for solution rows (max 81)
+	int solution_rows[81];
+	int solution_count = 0;
 
-	if (search(headers, solution_rows))
+	if (search(headers, solution_rows, solution_count))
 	{
-		decodeSolution(solution_rows, solution);
-
+		decodeSolution(solution_rows, solution_count, solution);
 		return true;
 	}
 
 	return false;
 }
 
-void SudokuDLX::buildMatrix(const Grid& puzzle, std::vector<Node>& nodes, Node* headers[COLS])
+void SudokuDLX::buildMatrix(const Grid& puzzle, Node* headers[COLS])
 {
 	// For each possible placement (r, c, d)
 	for (int r = 0; r < 9; ++r)
@@ -79,8 +96,7 @@ void SudokuDLX::buildMatrix(const Grid& puzzle, std::vector<Node>& nodes, Node* 
 				for (int ci = 0; ci < 4; ++ci)
 				{
 					int col_idx = cols[ci];
-					nodes.emplace_back();
-					Node* node = &nodes.back();
+					Node* node = &g_node_buffer[g_node_count++];
 					node->row_id = row_id;
 					node->constraint_id = col_idx;
 					node->column = headers[col_idx];
@@ -149,7 +165,7 @@ void SudokuDLX::uncover(Node* c)
 	c->left->right = c;
 }
 
-bool SudokuDLX::search(Node* headers[COLS], std::vector<int>& solution_rows, int depth)
+bool SudokuDLX::search(Node* headers[COLS], int* solution_rows, int& solution_count, int depth)
 {
 	// If header points to itself, all columns covered = solved
 	if (headers[0]->right == headers[0])
@@ -184,7 +200,7 @@ bool SudokuDLX::search(Node* headers[COLS], std::vector<int>& solution_rows, int
 	// Try each row in this column
 	for (Node* r = best_col->down; r != best_col; r = r->down)
 	{
-		solution_rows.push_back(r->row_id);
+		solution_rows[solution_count++] = r->row_id;
 
 		// Cover all other columns in this row
 		for (Node* j = r->right; j != r; j = j->right)
@@ -192,11 +208,11 @@ bool SudokuDLX::search(Node* headers[COLS], std::vector<int>& solution_rows, int
 			cover(j->column);
 		}
 
-		if (search(headers, solution_rows, depth + 1))
+		if (search(headers, solution_rows, solution_count, depth + 1))
 			return true;
 
 		// Backtrack
-		solution_rows.pop_back();
+		--solution_count;
 		for (Node* j = r->left; j != r; j = j->left)
 		{
 			uncover(j->column);
@@ -207,11 +223,12 @@ bool SudokuDLX::search(Node* headers[COLS], std::vector<int>& solution_rows, int
 	return false;
 }
 
-void SudokuDLX::decodeSolution(const std::vector<int>& solution_rows, Grid& solution)
+void SudokuDLX::decodeSolution(const int* solution_rows, int solution_count, Grid& solution)
 {
 	solution.fill(0);
-	for (int row_id : solution_rows)
+	for (int i = 0; i < solution_count; ++i)
 	{
+		int row_id = solution_rows[i];
 		int r = row_id / 81;
 		int c = (row_id % 81) / 9;
 		int d = (row_id % 9) + 1;

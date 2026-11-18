@@ -18,6 +18,50 @@
 
 using Mask = Sudoku::Mask;
 
+// Precomputed peers for each cell (20 peers: same row, col, box excluding self)
+const std::array<std::array<int, 20>, 81>& Sudoku::PEERS() {
+    static const std::array<std::array<int, 20>, 81> peers = []() {
+        std::array<std::array<int, 20>, 81> p{};
+        for (int i = 0; i < 81; ++i) {
+            int r = i / 9, c = i % 9, b = Sudoku::BOX_OF[i];
+            int idx = 0;
+            // Row peers
+            for (int cc = 0; cc < 9; ++cc) if (cc != c) p[i][idx++] = Sudoku::idx(r, cc);
+            // Col peers
+            for (int rr = 0; rr < 9; ++rr) if (rr != r) p[i][idx++] = Sudoku::idx(rr, c);
+            // Box peers
+            int br = (r / 3) * 3, bc = (c / 3) * 3;
+            for (int dr = 0; dr < 3; ++dr) {
+                for (int dc = 0; dc < 3; ++dc) {
+                    int rr = br + dr, cc = bc + dc;
+                    if (rr != r || cc != c) p[i][idx++] = Sudoku::idx(rr, cc);
+                }
+            }
+        }
+        return p;
+    }();
+    return peers;
+}
+
+// Precomputed cells in each box (9 cells per box)
+const std::array<std::array<int, 9>, 9>& Sudoku::BOX_CELLS() {
+    static const std::array<std::array<int, 9>, 9> box_cells = []() {
+        std::array<std::array<int, 9>, 9> bc{};
+        for (int b = 0; b < 9; ++b) {
+            int p = 0;
+            int br = (b / 3) * 3, bcc = (b % 3) * 3;
+            for (int dr = 0; dr < 3; ++dr) {
+                for (int dc = 0; dc < 3; ++dc) {
+                    bc[b][p++] = Sudoku::idx(br + dr, bcc + dc);
+                }
+            }
+        }
+        return bc;
+    }();
+    return box_cells;
+}
+
+
 // Portable popcount
 inline int popcount(Mask m)
 {
@@ -311,8 +355,7 @@ int Sudoku::_findBestCell() const
 {
 #if SUDOKU_AVX2
 	// Vectorized: find cell with minimum candidates among empty cells
-	// We need to consider only cells where _solution[i] == 0
-	// Create a mask of valid (empty) cells
+	// Direct load from member arrays (no gather/scatter overhead)
 	int min_count = 10;
 	int best_idx = -1;
 
@@ -321,26 +364,24 @@ int Sudoku::_findBestCell() const
 		int remaining = 81 - base;
 		int process = (remaining >= 16) ? 16 : remaining;
 
-		// Load candidates for this chunk
-		alignas(32) Mask chunk_candidates[16];
-		alignas(32) uint16_t chunk_solution[16];
-
-		for (int j = 0; j < process; ++j) {
-			chunk_candidates[j] = _cell_candidates[base + j];
-			chunk_solution[j] = _solution[base + j];
-		}
-		// Zero-pad the rest
-		for (int j = process; j < 16; ++j) {
-			chunk_candidates[j] = 0;
-			chunk_solution[j] = 1; // non-zero = filled
-		}
-
-		__m256i vec_cand = SudokuAVX2::load_candidates(chunk_candidates);
-		__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(chunk_solution));
+		// Direct load from member arrays (unaligned is fine for AVX2)
+		__m256i vec_cand = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&_cell_candidates[base]));
+		__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&_solution[base]));
 
 		// Mask out filled cells (set candidates to 0 where solution != 0)
 		__m256i sol_zero = _mm256_cmpeq_epi16(vec_sol, _mm256_setzero_si256());
 		vec_cand = _mm256_and_si256(vec_cand, sol_zero);
+
+		// For partial final chunk, zero out of bounds lanes
+		if (process < 16) {
+			__m256i mask = _mm256_setr_epi16(
+				(process > 0) ? -1 : 0, (process > 1) ? -1 : 0, (process > 2) ? -1 : 0, (process > 3) ? -1 : 0,
+				(process > 4) ? -1 : 0, (process > 5) ? -1 : 0, (process > 6) ? -1 : 0, (process > 7) ? -1 : 0,
+				(process > 8) ? -1 : 0, (process > 9) ? -1 : 0, (process > 10) ? -1 : 0, (process > 11) ? -1 : 0,
+				(process > 12) ? -1 : 0, (process > 13) ? -1 : 0, (process > 14) ? -1 : 0, (process > 15) ? -1 : 0
+			);
+			vec_cand = _mm256_and_si256(vec_cand, mask);
+		}
 
 		// Compute popcounts (each 16-bit lane has popcount in low 8 bits)
 		__m256i popcnts = SudokuAVX2::popcount_epi16(vec_cand);
@@ -360,9 +401,9 @@ int Sudoku::_findBestCell() const
 
 		for (int j = 0; j < process; ++j) {
 			int c = counts[j];
-			// Only flag contradiction for EMPTY cells (chunk_solution[j] == 0)
+			// Only flag contradiction for EMPTY cells (solution == 0)
 			// Filled cells have c == 0 after masking but are not contradictions
-			if (c == 0 && chunk_solution[j] == 0) {
+			if (c == 0 && _solution[base + j] == 0) {
 				// Contradiction: empty cell with no candidates -> fail fast
 				return base + j;
 			}
@@ -413,28 +454,29 @@ bool Sudoku::_nakedSingles()
 
 #if SUDOKU_AVX2
 	// Vectorized: find all naked singles in chunks of 16
+	// Direct load from member arrays (no gather/scatter overhead)
 	for (int base = 0; base < 81; base += 16) {
 		int remaining = 81 - base;
 		int process = (remaining >= 16) ? 16 : remaining;
 
-		alignas(32) Mask chunk_candidates[16];
-		alignas(32) uint16_t chunk_solution[16];
-
-		for (int j = 0; j < process; ++j) {
-			chunk_candidates[j] = _cell_candidates[base + j];
-			chunk_solution[j] = _solution[base + j];
-		}
-		for (int j = process; j < 16; ++j) {
-			chunk_candidates[j] = 0;
-			chunk_solution[j] = 1;
-		}
-
-		__m256i vec_cand = SudokuAVX2::load_candidates(chunk_candidates);
-		__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(chunk_solution));
+		// Direct load from member arrays (unaligned is fine for AVX2)
+		__m256i vec_cand = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&_cell_candidates[base]));
+		__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(&_solution[base]));
 
 		// Mask out filled cells
 		__m256i sol_zero = _mm256_cmpeq_epi16(vec_sol, _mm256_setzero_si256());
 		vec_cand = _mm256_and_si256(vec_cand, sol_zero);
+
+		// For partial final chunk, zero out of bounds lanes
+		if (process < 16) {
+			__m256i mask = _mm256_setr_epi16(
+				(process > 0) ? -1 : 0, (process > 1) ? -1 : 0, (process > 2) ? -1 : 0, (process > 3) ? -1 : 0,
+				(process > 4) ? -1 : 0, (process > 5) ? -1 : 0, (process > 6) ? -1 : 0, (process > 7) ? -1 : 0,
+				(process > 8) ? -1 : 0, (process > 9) ? -1 : 0, (process > 10) ? -1 : 0, (process > 11) ? -1 : 0,
+				(process > 12) ? -1 : 0, (process > 13) ? -1 : 0, (process > 14) ? -1 : 0, (process > 15) ? -1 : 0
+			);
+			vec_cand = _mm256_and_si256(vec_cand, mask);
+		}
 
 		// Find naked singles: exactly 1 bit set
 		__m256i singles_mask = SudokuAVX2::naked_singles_mask(vec_cand);
@@ -543,14 +585,16 @@ bool Sudoku::_hiddenSingles()
 		}
 	}
 
-	// Check boxes
+	// Check boxes - use precomputed BOX_CELLS for 9x speedup
 	for (int b = 0; b < 9; ++b) {
 		for (int d = 1; d <= 9; ++d) {
 			Mask m = DIGIT_MASK[d];
 			if (_boxes[b] & m) continue;
 			int count = 0, last_cell = -1;
-			for (int i = 0; i < 81; ++i) {
-				if (BOX_OF[i] == b && _solution[i] == 0 && (_cell_candidates[i] & m)) {
+			// Iterate only 9 cells in this box instead of all 81
+			for (int k = 0; k < 9; ++k) {
+				int i = BOX_CELLS()[b][k];
+				if (_solution[i] == 0 && (_cell_candidates[i] & m)) {
 					count++;
 					last_cell = i;
 				}
@@ -606,61 +650,21 @@ bool Sudoku::_solveRecursive()
 		_boxes[b] |= m;
 
 		// Save and update affected candidates (only peers: same row, col, or box)
-		Mask saved[81];
-		for (int i = 0; i < 81; ++i) saved[i] = _cell_candidates[i];
-
-#if SUDOKU_AVX2
-		// Vectorized: clear digit m from peers only (same row, col, or box)
-		__m256i clear_mask = SudokuAVX2::broadcast_mask(~m);
-		for (int base = 0; base < 81; base += 16) {
-			int remaining = 81 - base;
-			int process = (remaining >= 16) ? 16 : remaining;
-
-			// Safe load: copy to aligned buffer for final partial chunk
-			alignas(32) Mask cand_buf[16];
-			alignas(32) uint16_t sol_buf[16];
-
-			for (int j = 0; j < process; ++j) {
-				int idx = base + j;
-				cand_buf[j] = _cell_candidates[idx];
-				sol_buf[j] = _solution[idx];
-			}
-			for (int j = process; j < 16; ++j) {
-				cand_buf[j] = 0;
-				sol_buf[j] = 1;
-			}
-
-			__m256i vec_cand = SudokuAVX2::load_candidates(cand_buf);
-			__m256i vec_sol = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(sol_buf));
-
-			// Only clear for empty cells
-			__m256i sol_zero = _mm256_cmpeq_epi16(vec_sol, _mm256_setzero_si256());
-			__m256i cleared = _mm256_and_si256(vec_cand, clear_mask);
-			vec_cand = _mm256_blendv_epi8(vec_cand, cleared, sol_zero);
-
-			// Store back only the processed elements
-			SudokuAVX2::store_candidates(cand_buf, vec_cand);
-			for (int j = 0; j < process; ++j) {
-				int idx = base + j;
-				// Only clear for peers of (row, col, b)
-				if ((idx / 9 == row) || (idx % 9 == col) || (BOX_OF[idx] == b)) {
-					_cell_candidates[idx] = cand_buf[j];
-				}
+		// Use PEERS lookup - only 20 peers per cell
+		Mask saved[20];
+		for (int k = 0; k < 20; ++k) {
+			int peer = PEERS()[cell][k];
+			saved[k] = _cell_candidates[peer];
+			if (_solution[peer] == 0) {
+				_cell_candidates[peer] &= ~m;
 			}
 		}
-#else
-		for (int i = 0; i < 81; ++i) {
-			if (_solution[i] == 0 && (_cell_candidates[i] & m)) {
-				// Only clear for peers of (row, col, b)
-				if ((i / 9 == row) || (i % 9 == col) || (BOX_OF[i] == b)) {
-					_cell_candidates[i] &= ~m;
-				}
-			}
-		}
-#endif
 
-		if (_solveRecursive())
-			return true;
+		// Apply constraint propagation after placement
+		if (_propagate()) {
+			if (_solveRecursive())
+				return true;
+		}
 
 		// Backtrack
 		_solution[cell] = 0;
@@ -668,8 +672,11 @@ bool Sudoku::_solveRecursive()
 		_cols[col] &= ~m;
 		_boxes[b] &= ~m;
 
-		// Restore candidates
-		for (int i = 0; i < 81; ++i) _cell_candidates[i] = saved[i];
+		// Restore candidates for peers
+		for (int k = 0; k < 20; ++k) {
+			int peer = PEERS()[cell][k];
+			_cell_candidates[peer] = saved[k];
+		}
 	}
 
 	return false;
