@@ -142,7 +142,8 @@ public:
 private:
 	// Member variables (early visibility of state)
 	Grid _grid;
-	Grid _solution;
+	// Padded to 96 (multiple of 16) for safe AVX2 16-element loads
+	uint16_t _solution[96] = {};
 	bool _solved;
 
 	// Bitmask state for O(1) constraint checking
@@ -151,8 +152,8 @@ private:
 	Mask _boxes[9] = {};
 
 	// Bit-packed candidates for each cell (Mask = uint16_t = 16 bits, bits 1-9 used)
-	// 81 cells × 16 bits = 162 bytes
-	Mask _cell_candidates[81];
+	// Padded to 96 (multiple of 16) for safe AVX2 16-element loads
+	Mask _cell_candidates[96] = {};
 
 public:
 	// 3. Constructors
@@ -163,7 +164,7 @@ public:
 	void setGrid(const Grid& grid);
 
 	Grid getGrid() const { return _grid; }
-	Grid getSolution() const { return _solution; }
+	Grid getSolution() const { Grid g; for (int i = 0; i < 81; ++i) g[i] = _solution[i]; return g; }
 
 	bool solve();
 	bool isSolved() const { return _solved; }

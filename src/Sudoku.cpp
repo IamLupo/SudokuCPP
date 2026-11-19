@@ -9,12 +9,7 @@
 #endif
 
 // AVX2 support detection (disabled in Debug builds due to stack alignment issues)
-#if (defined(__AVX2__) || defined(_M_AVX2)) && !defined(_DEBUG)
-#define SUDOKU_AVX2 1
-#include <immintrin.h>
-#else
 #define SUDOKU_AVX2 0
-#endif
 
 using Mask = Sudoku::Mask;
 
@@ -174,23 +169,24 @@ namespace SudokuAVX2
 #endif // SUDOKU_AVX2
 
 Sudoku::Sudoku()
-	: _grid{}, _solution{}, _solved(false)
+	: _grid{}, _solved(false)
 {
 	_grid.fill(0);
-	_solution.fill(0);
+	std::fill(std::begin(_solution), std::end(_solution), 0);
 	std::fill(std::begin(_cell_candidates), std::end(_cell_candidates), 0);
 }
 
 Sudoku::Sudoku(const Grid& initialGrid)
-	: _grid(initialGrid), _solution(initialGrid), _solved(false)
+	: _grid(initialGrid), _solved(false)
 {
+	for (int i = 0; i < 81; ++i) _solution[i] = initialGrid[i];
 	std::fill(std::begin(_cell_candidates), std::end(_cell_candidates), 0);
 }
 
 void Sudoku::setGrid(const Grid& grid)
 {
 	_grid = grid;
-	_solution = grid;
+	for (int i = 0; i < 81; ++i) _solution[i] = grid[i];
 	_solved = false;
 	std::fill(std::begin(_rows), std::end(_rows), 0);
 	std::fill(std::begin(_cols), std::end(_cols), 0);
@@ -200,7 +196,7 @@ void Sudoku::setGrid(const Grid& grid)
 
 bool Sudoku::solve()
 {
-	_solution = _grid;
+	for (int i = 0; i < 81; ++i) _solution[i] = _grid[i];
 	std::fill(std::begin(_rows), std::end(_rows), 0);
 	std::fill(std::begin(_cols), std::end(_cols), 0);
 	std::fill(std::begin(_boxes), std::end(_boxes), 0);
@@ -236,7 +232,8 @@ bool Sudoku::solve()
 	}
 
 	// Apply constraint propagation before search
-	_propagate();
+	if (!_propagate())
+		return false; // contradiction from givens
 
 	_solved = _solveRecursive();
 	return _solved;
@@ -244,7 +241,12 @@ bool Sudoku::solve()
 
 void Sudoku::Draw(bool draw_start) const
 {
-	const Grid& grid = draw_start ? _grid : _solution;
+	Grid grid;
+	if (draw_start) {
+		grid = _grid;
+	} else {
+		for (int i = 0; i < 81; ++i) grid[i] = _solution[i];
+	}
 
 	std::cout << "+-------+-------+-------+\n";
 
@@ -386,6 +388,7 @@ int Sudoku::_findBestCell() const
 }
 
 // Constraint propagation techniques
+// Returns false if contradiction detected (empty cell with no candidates)
 bool Sudoku::_propagate()
 {
 	bool progress = true;
@@ -394,10 +397,16 @@ bool Sudoku::_propagate()
 		progress |= _nakedSingles();
 		progress |= _hiddenSingles();
 	}
+	// Check for contradictions after propagation
+	for (int i = 0; i < 81; ++i) {
+		if (_solution[i] == 0 && _cell_candidates[i] == 0)
+			return false;
+	}
 	return true;
 }
 
 // Naked singles: cell with only 1 candidate
+// Returns false if contradiction (empty cell with 0 candidates after update)
 bool Sudoku::_nakedSingles()
 {
 	bool progress = false;
@@ -481,6 +490,7 @@ bool Sudoku::_nakedSingles()
 }
 
 // Hidden singles: digit appears only once in a house
+// Returns true if progress made, false if no progress
 bool Sudoku::_hiddenSingles()
 {
 	bool progress = false;
@@ -582,12 +592,15 @@ bool Sudoku::_solveRecursive()
 		return true; // completely filled = solved
 	}
 
+	Mask candidates = _cell_candidates[cell];
+	if (candidates == 0)
+		return false;
+
 	int row = cell / 9;
 	int col = cell % 9;
-	Mask candidates = _cell_candidates[cell];
 	int b = BOX_OF[cell];
 
-	// Try each candidate
+	// Try each candidate - save only peers (20 cells) like original working version
 	while (candidates) {
 		Mask m = candidates & -candidates;
 		int num = ctz(m);
@@ -599,8 +612,7 @@ bool Sudoku::_solveRecursive()
 		_cols[col] |= m;
 		_boxes[b] |= m;
 
-		// Save and update affected candidates (only peers: same row, col, or box)
-		// Use PEERS lookup - only 20 peers per cell
+		// Save only peers' candidates (20 peers per cell)
 		Mask saved[20];
 		for (int k = 0; k < 20; ++k) {
 			int peer = PEERS[cell][k];
@@ -610,23 +622,20 @@ bool Sudoku::_solveRecursive()
 			}
 		}
 
-		// Apply constraint propagation after placement
-		if (_propagate()) {
-			if (_solveRecursive())
-				return true;
-		}
+		if (_solveRecursive())
+			return true;
 
-		// Backtrack
-		_solution[cell] = 0;
-		_rows[row] &= ~m;
-		_cols[col] &= ~m;
-		_boxes[b] &= ~m;
-
-		// Restore candidates for peers
+		// Backtrack - restore peers' candidates
 		for (int k = 0; k < 20; ++k) {
 			int peer = PEERS[cell][k];
 			_cell_candidates[peer] = saved[k];
 		}
+
+		// Undo placement
+		_solution[cell] = 0;
+		_rows[row] &= ~m;
+		_cols[col] &= ~m;
+		_boxes[b] &= ~m;
 	}
 
 	return false;
