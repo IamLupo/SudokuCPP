@@ -50,7 +50,8 @@ private:
 
 	// Search with heuristic (choose column with minimum size)
 	// Uses fixed buffer for solution_rows (max 81)
-	static bool search(Node* headers[COLS], int* solution_rows, int& solution_count, int depth = 0);
+	// root is the dummy root header (sentinel), not headers[0]
+	static bool search(Node* root, int* solution_rows, int& solution_count, int depth = 0);
 
 	// Decode solution rows back to grid
 	static void decodeSolution(const int* solution_rows, int solution_count, Grid& solution);

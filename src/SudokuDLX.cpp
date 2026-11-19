@@ -33,7 +33,15 @@ bool SudokuDLX::solve(const Grid& puzzle, Grid& solution)
 	// Reset node buffer
 	g_node_count = 0;
 
-	// Create column headers
+	// Create a dedicated dummy root header (NOT a real constraint column)
+	// This fixes the sentinel issue where headers[0] was both a real column AND the list root
+	Node* root = &g_node_buffer[g_node_count++];
+	root->constraint_id = -1;
+	root->size = 0;
+	root->up = root->down = root;
+	root->left = root->right = root;
+
+	// Create column headers (324 real constraint columns)
 	Node* headers[COLS] = {};
 	for (int i = 0; i < COLS; ++i)
 	{
@@ -44,11 +52,16 @@ bool SudokuDLX::solve(const Grid& puzzle, Grid& solution)
 		node->up = node->down = node;
 	}
 
-	// Link headers horizontally
-	for (int i = 0; i < COLS; ++i)
+	// Link all headers into circular list with root as sentinel
+	// root <-> headers[0] <-> headers[1] <-> ... <-> headers[323] <-> root
+	root->right = headers[0];
+	root->left = headers[COLS - 1];
+	headers[0]->left = root;
+	headers[COLS - 1]->right = root;
+	for (int i = 0; i < COLS - 1; ++i)
 	{
-		headers[i]->right = headers[(i + 1) % COLS];
-		headers[i]->left = headers[(i - 1 + COLS) % COLS];
+		headers[i]->right = headers[i + 1];
+		headers[i + 1]->left = headers[i];
 	}
 
 	buildMatrix(puzzle, headers);
@@ -57,7 +70,8 @@ bool SudokuDLX::solve(const Grid& puzzle, Grid& solution)
 	int solution_rows[81];
 	int solution_count = 0;
 
-	if (search(headers, solution_rows, solution_count))
+	// Pass root to search instead of headers array
+	if (search(root, solution_rows, solution_count))
 	{
 		decodeSolution(solution_rows, solution_count, solution);
 		return true;
@@ -165,10 +179,10 @@ void SudokuDLX::uncover(Node* c)
 	c->left->right = c;
 }
 
-bool SudokuDLX::search(Node* headers[COLS], int* solution_rows, int& solution_count, int depth)
+bool SudokuDLX::search(Node* root, int* solution_rows, int& solution_count, int depth)
 {
-	// If header points to itself, all columns covered = solved
-	if (headers[0]->right == headers[0])
+	// If root points to itself, all columns covered = solved
+	if (root->right == root)
 	{
 		return true;
 	}
@@ -177,7 +191,7 @@ bool SudokuDLX::search(Node* headers[COLS], int* solution_rows, int& solution_co
 	Node* best_col = nullptr;
 	int min_size = INT_MAX;
 
-	for (Node* c = headers[0]->right; c != headers[0]; c = c->right)
+	for (Node* c = root->right; c != root; c = c->right)
 	{
 		if (c->size < min_size)
 		{
@@ -208,7 +222,7 @@ bool SudokuDLX::search(Node* headers[COLS], int* solution_rows, int& solution_co
 			cover(j->column);
 		}
 
-		if (search(headers, solution_rows, solution_count, depth + 1))
+		if (search(root, solution_rows, solution_count, depth + 1))
 			return true;
 
 		// Backtrack
